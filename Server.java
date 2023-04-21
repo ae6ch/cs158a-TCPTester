@@ -1,57 +1,85 @@
 import java.net.*;
 import java.io.*;
+import java.util.Arrays;
+
 
 public class Server implements Runnable {
-    private ServerSocket serverSocket;
+    private ServerSocket tcpServerSocket;
+    private DatagramSocket udpServerSocket;
     private Socket socket;
-    private BufferedReader in;
-    private OutputStream out;
+    private BufferedReader tcpIn;
+    private OutputStream tcpOut;
+    private UdpRW udpRw;
     private String line;
     private boolean done = false;
     final char EOL = '\n';
+    private Protocols protocol;
 
-    public Server(int port, Protocols protocol)  {
+    public Server(int port, Protocols protocol) {
+        this.protocol = protocol;
         switch (protocol) {
-            case TCP:
-            try {
-                serverSocket = new ServerSocket(port);
-            }
-            catch (IOException e) {
-                System.out.println("Error: " + e);
-            }
-            break;
             case UDP:
+                try {
+                    udpServerSocket = new DatagramSocket(port);
+                }
+
+                catch (IOException e) {
+                    System.out.println("Error: " + e);
+                }
+                break;
+            case TCP:
+                try {
+                    tcpServerSocket = new ServerSocket(port);   
+                } catch (IOException e) {
+                    System.out.println("Error: " + e);
+                }
                 break;
             default:
         }
-       
-    }
 
-    private void close() throws IOException {
-        socket.close();
     }
 
     @Override
     public void run() {
         try {
-            socket = serverSocket.accept();
-            in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            out = socket.getOutputStream();
-            while (!done) {
-                line = in.readLine();
+            if (protocol == Protocols.TCP) {
+                socket = tcpServerSocket.accept();
+                socket.setTcpNoDelay(true);
+
+                tcpIn = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                tcpOut = socket.getOutputStream();
+            }
+
+            if (protocol == Protocols.UDP) {
+                udpRw = new UdpRW(udpServerSocket);
+            }
+
+            while (!done){
+                line = readLine();
+                if (line == null) {
+                    done = true;
+                    socket.close();
+                    System.out.println("Socket closed");
+                    return;
+                }
+
                 String[] split = line.split(" ");
-                switch (split[0]) {
-                    case "PING":
-                        Ping(split);
+                switch (split[0].charAt(0)) {
+                    case 'P':
+                        Ping(line.getBytes());
                         break;
-                    case "SENDME":
-                        SendMe(Long.parseLong(split[1]));
+                    case 'S':
+                        for (long i = 1; i <= Long.parseLong(split[1]); i++) {
+                            
+                            SendMeMessage(Integer.parseInt(split[2]));
+                        }
                         break;
-                    case "QUIT":
+                    case 'Q':
                         done = true;
                         break;
                     default:
-                        out.write("ERROR".getBytes());
+                        System.out.println("Error: " + line);
+                        writeWithEOL("ERROR".getBytes());
                         break;
                 }
             }
@@ -60,24 +88,52 @@ public class Server implements Runnable {
         }
     }
 
-    // PING responds with PONG and any additional arguments
-    private void Ping(String[] split) throws IOException{
-        out.write("PONG".getBytes());
-        if (split.length > 1) {
-            for (int i = 1; i < split.length; i++) {
-                out.write(' ');
-                out.write(split[i].getBytes());
-            }
-        }
-        out.write(EOL);
+    private void Ping(byte[] line) throws IOException {
+        writeWithEOL(line);
+;
+
+
     }
 
-    // SENDME sends N bytes followed by EOL
-    private void SendMe(long numBytes) throws IOException{
-        for (long i = 0; i < numBytes; i++) {
-            out.write('*');
-            out.flush();
+    private String readLine() throws IOException {
+        switch (protocol) {
+            case UDP:
+                return udpRw.readLine();
+            default:
+                return tcpIn.readLine();
+
         }
-        out.write(EOL);
+    }
+
+    private void writeWithEOL(byte[] msg) throws IOException {
+        byte[] sendBuffer = new byte[msg.length + 1]; // +1 to append EOL
+        System.arraycopy(msg, 0, sendBuffer, 0, msg.length);
+        sendBuffer[msg.length] = (byte) EOL;
+        switch (protocol) {
+            case UDP:
+                udpRw.write(sendBuffer);
+                break;
+            default:
+                write(sendBuffer);
+        }
+    }
+
+    private void write(byte [] msg) throws IOException {
+        switch (protocol) {
+            case UDP:
+                udpRw.write(msg);
+                break;
+            default:
+                tcpOut.write(msg, 0, msg.length);
+                tcpOut.flush();
+                break;
+        }
+    }
+
+    private void SendMeMessage(int numBytes) throws IOException {
+        byte[] buf = new byte[numBytes];
+        Arrays.fill(buf, (byte) 'S');
+        //System.out.println("Sending " + numBytes + " bytes");
+        write(buf);
     }
 }
