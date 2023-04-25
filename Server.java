@@ -60,7 +60,7 @@ public class Server implements Runnable {
                     done = true;
                     socket.close();
                     System.out.println("Socket closed");
-                    return;
+                    System.exit(0);
                 }
 
                 String[] split = line.split(" ");

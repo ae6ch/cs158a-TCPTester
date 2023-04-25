@@ -25,7 +25,6 @@ public class Client {
          udpSocket.connect(udpServerAddress, port);
          udpRw = new UdpRW(udpSocket);
 
-
       } else {
          tcpSocket = new Socket(host, port);
          tcpSocket.setTcpNoDelay(true);
@@ -44,13 +43,19 @@ public class Client {
       return (messageTimes);
    }
 
-   public HashMap<Integer, Long> messageCountSweep(long dataSize, int[] sizes) throws IOException {
-      HashMap<Integer, Long> messageTimes = new HashMap<>();
+   public HashMap<Long, Long> messageCountSweep(long dataSize, int[] sizes) throws IOException {
+      HashMap<Long, Long> messageTimes = new HashMap<>();
       for (int numMessages : sizes) {
-         System.out.printf("Sending %d messages of size %d -- ", numMessages, (int) (dataSize / numMessages));
-         messageTimes.put(numMessages, message((int) (dataSize / numMessages), numMessages));
+         messageTimes.put(dataSize / numMessages, message((int) (dataSize / numMessages), numMessages));
       }
       return (messageTimes);
+   }
+   public static void printMessageCountSweep(HashMap<Long, Long> messageTimes) {
+      System.out.println("NumMessages,Throughput");
+      for (long packetSize : messageTimes.keySet()) {
+         long time = messageTimes.get(packetSize);
+         System.out.printf("%d,%d\n", packetSize, time);
+      }
    }
 
    public ArrayList<Long> messageTest(int size, int numMessages) throws IOException {
@@ -76,7 +81,6 @@ public class Client {
       long endTime = System.nanoTime();
       long transferTime = endTime - startTime;
       long throughput = (long) ((totalBytesRead * 8) / (transferTime / 1000000000.0));
-      System.out.printf("Read %d bytes in %dns (%d bps)\n", totalBytesRead, transferTime, throughput);
       return (throughput);
    }
 
@@ -88,15 +92,15 @@ public class Client {
       return (pingTimes);
    }
 
-   public static void printPingTimes(HashMap<Integer, ArrayList<Long>> pingTimes) {
-      System.out.printf("Size,Time(ns)\n");
-      for (int size : pingTimes.keySet()) {
-         ArrayList<Long> times = pingTimes.get(size);
+   public static void printMessageTimes(HashMap<Integer, ArrayList<Long>> messageTimes) {
+      System.out.println("Size,Thoughput");
+
+      for (int size : messageTimes.keySet()) {
+         ArrayList<Long> times = messageTimes.get(size);
          long total = 0;
          long min = 0;
          long max = 0;
          for (long time : times) {
-            // System.out.printf("%d,%d\n", size, time);
             total += time;
             if (time < min || min == 0) {
                min = time;
@@ -105,8 +109,35 @@ public class Client {
                max = time;
             }
          }
-         System.out.printf("count %d, size %d, min %d, max %d, avg %d\n", times.size(), size, min, max,
-               total / times.size());
+         if (times.size() == 1)
+            System.out.printf("%d, %d\n", size, min);
+         else
+            System.out.printf("Samples %d, size %d, min %d, max %d, avg %d\n", times.size(), size, min, max,
+                  total / times.size());
+      }
+   }
+
+   public static void printPingTimes(HashMap<Integer, ArrayList<Long>> pingTimes) {
+      System.out.println("Size,Time(ns)");
+      for (int size : pingTimes.keySet()) {
+         ArrayList<Long> times = pingTimes.get(size);
+         long total = 0;
+         long min = 0;
+         long max = 0;
+         for (long time : times) {
+            total += time;
+            if (time < min || min == 0) {
+               min = time;
+            }
+            if (time > max) {
+               max = time;
+            }
+         }
+         if (times.size() == 1)
+            System.out.printf("%d, %d\n", size, min);
+         else
+            System.out.printf("Samples %d, size %d, min %d, max %d, avg %d\n", times.size(), size, min, max,
+                  total / times.size());
       }
    }
 
@@ -129,7 +160,7 @@ public class Client {
       sendBuffer[size] = (byte) EOL;
       write(sendBuffer);
       String line = readLine();
-     
+
       if (line.equals(new String(trimmedBuffer))) { // Check for data corruption or loss
          long endTime = System.nanoTime();
          return endTime - startTime;
@@ -138,18 +169,6 @@ public class Client {
       }
    }
 
-   private void writeWithEOL(byte[] msg) throws IOException {
-      byte[] sendBuffer = new byte[msg.length + 1]; // +1 to append EOL
-      System.arraycopy(msg, 0, sendBuffer, 0, msg.length);
-      sendBuffer[msg.length] = (byte) EOL;
-      switch (protocol) {
-         case UDP:
-            udpRw.write(sendBuffer);
-            break;
-         default:
-            write(sendBuffer);
-      }
-   }
 
    private void write(byte[] msg) throws IOException {
       switch (protocol) {
@@ -172,14 +191,15 @@ public class Client {
 
       }
    }
+
    private int read(byte[] b) throws IOException {
       switch (protocol) {
          case UDP:
             String line = udpRw.read();
-            b=line.getBytes();
+            b = line.getBytes();
             return line.length();
          default:
-            char [] c = new char[b.length];
+            char[] c = new char[b.length];
             return tcpIn.read(c);
 
       }
